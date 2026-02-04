@@ -1,27 +1,7 @@
-import google.generativeai as genai
 import time
-import sys
-from dotenv import load_dotenv
-import os
+import ollama
 
-load_dotenv()
-
-API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not API_KEY:
-    print("ERRO: Variável GEMINI_API_KEY não encontrada no arquivo .env")
-    sys.exit(1)
-
-genai.configure(api_key=API_KEY)
-
-model_name = 'gemini-2.5-flash'
-
-generation_config = {
-  "temperature": 0.0,
-  "top_p": 0.95,
-  "max_output_tokens": 8192,
-  "response_mime_type": "text/plain",
-}
+model_name = 'llama3'
 
 system_instruction = (
     "Você é um especialista sênior em Agronomia e avaliador técnico. "
@@ -32,32 +12,25 @@ system_instruction = (
     "Justifique brevemente sua classificação."
 )
 
-model = genai.GenerativeModel(
-  model_name=model_name,
-  generation_config=generation_config,
-  system_instruction=system_instruction
-)
+def gerar_resposta_llama(prompt):
+    try:
+        response = ollama.chat(
+            model='llama3',
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt}
+            ],
+            options={
+                "temperature": 0.0,
+                "num_ctx": 8192,     # contexto grande (importante para seu prompt longo)
+                "num_predict": 2048 # limite de saída (ajuste se quiser)
+            }
+        )
+        return response['message']['content'].strip()
 
-def gerar_com_retry(prompt, max_tentativas=10):
-    for tentativa in range(max_tentativas):
-        try:
-            return model.generate_content(prompt).text.strip()
-        except Exception as e:
-            erro_str = str(e)
-            if "429" in erro_str or "quota" in erro_str.lower():
-                tempo_espera = 60 
-                print(f"\n   [!] Cota excedida (Erro 429). Aguardando {tempo_espera}s para tentar novamente...")
-                
-                # Barra de progresso visual
-                for i in range(tempo_espera, 0, -1):
-                    sys.stdout.write(f"\r   ...Retomando em {i}s ")
-                    sys.stdout.flush()
-                    time.sleep(1)
-                print("\r   ...Tentando novamente agora!          ")
-            else:
-                print(f"   ERRO IRRECUPERÁVEL: {e}")
-                return "ERRO_API"
-    return "FALHA_APOS_RETRIES"
+    except Exception as e:
+        print(f"ERRO LLaMA LOCAL: {e}")
+        return "ERRO_LLM_LOCAL"
 
 # --- DADOS DA PLANILHA ---
 dados_teste = [
@@ -127,8 +100,8 @@ dados_teste = [
         'referencia': 'O manejo da adubação da soja baseia-se no diagnóstico da fertilidade do solo, na exigência nutricional da cultura, no potencial produtivo esperado e no custo do fertilizante em relação ao produto.',
         'testes': {
             'Incorreta': 'O manejo baseia-se exclusivamente na aplicação foliar de nitrogênio, pois a soja não absorve nutrientes pelas raízes.',
-            'Mediana': 'Depende de quanto adubo o produtor pode comprar e do que o vendedor da loja recomendou aplicar naquele ano.',
-            'Especialista': 'O manejo nutricional segue a "Lei do Mínimo" e baseia-se na análise de solo e foliar. Foca na reposição dos macronutrientes exportados pelos grãos (principalmente Potássio e Fósforo) e na correção do pH (Saturação de Bases - V%) via calagem para eliminar a toxidez de Alumínio. O Nitrogênio é suprido via FBN, dispensando adubação nitrogenada mineral.'
+            'Mediana': 'O manejo da adubação da soja baseia-se principalmente na análise do solo, na reposição dos nutrientes retirados pela cultura e na correção da fertilidade do solo. Também considera as necessidades nutricionais da planta ao longo do seu desenvolvimento, buscando garantir uma produção adequada e sustentável.',
+            'Especialista': 'O manejo da adubação da soja fundamenta-se em princípios técnicos que visam garantir alta produtividade com sustentabilidade. Entre eles destacam-se a análise e interpretação do solo, que orienta a correção da acidez e a disponibilidade de nutrientes; a adubação de correção e manutenção, visando suprir e repor os nutrientes extraídos pela cultura; o respeito às exigências nutricionais da soja em cada fase de desenvolvimento; a eficiência do uso de fertilizantes, evitando desperdícios e impactos ambientais; e a fixação biológica do nitrogênio, que reduz a necessidade de adubação nitrogenada quando bem manejada. Esses princípios permitem equilíbrio nutricional, produtividade e conservação do solo.'
         }
     },
     {
@@ -274,7 +247,7 @@ def avaliar_item_unico(item):
         )
         
         print(f"\n>> Analisando resposta '{tipo}'...")
-        avaliacao = gerar_com_retry(prompt_juiz)
+        avaliacao = gerar_resposta_llama(prompt_juiz)
         
         print(f"   RESULTADO: {avaliacao}")
         print("-" * 30)
